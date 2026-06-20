@@ -10,7 +10,7 @@ management, structured prompt enforcement, and self-healing JSON parsing.
 - Forces structured JSON output via strict system prompting
 - Self-heals malformed LLM responses (markdown fences, trailing commas)
   instead of crashing
-- Streams and calls a live LLM via OpenRouter
+- Calls a live LLM via OpenRouter
 
 ## Architecture
 ```mermaid
