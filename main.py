@@ -1,12 +1,17 @@
+import os
 import json
+import httpx
 import tiktoken
 from fastapi import FastAPI
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app = FastAPI()
 enc = tiktoken.get_encoding("o200k_base")
 
 # ── Config ────────────────────────────────────────────────────────────────
-OPENROUTER_API_KEY = ""
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 OPENROUTER_MODEL   = "openai/gpt-4o-mini"
 
 
@@ -113,3 +118,25 @@ def parse_or_heal(raw_llm_output: str) -> dict:
 
     # Give up — return raw text so caller never crashes
     return {"reply": raw_llm_output}
+
+
+# ── New: OpenRouter caller ────────────────────────────────────────────────
+
+async def call_openrouter(prompt: str) -> str:
+    """POST to OpenRouter, return the model's reply string."""
+    body = {
+        "model": OPENROUTER_MODEL,
+        "messages": [{"role": "user", "content": prompt}],
+    }
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        resp = await client.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            json=body,
+            headers=headers,
+        )
+        resp.raise_for_status()
+    return resp.json()["choices"][0]["message"]["content"]
