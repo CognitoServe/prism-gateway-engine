@@ -13,8 +13,40 @@ management, structured prompt enforcement, and self-healing JSON parsing.
 - Streams and calls a live LLM via OpenRouter
 
 ## Architecture
-[request] -> sliding_window -> build_structured_prompt -> 
-call_openrouter -> parse_or_heal -> [response]
+```mermaid
+graph TD
+    classDef client fill:#eef2f7,stroke:#94a3b8,stroke-width:2px;
+    classDef process fill:#f0fdf4,stroke:#22c55e,stroke-width:2px;
+    classDef ext fill:#fff7ed,stroke:#f97316,stroke-width:2px;
+    classDef healer fill:#fef2f2,stroke:#ef4444,stroke-width:2px;
+
+    Client["[Client] POST /chat"]:::client --> Receive["1. Receive Payload<br>(history, system, max_tokens)"]:::process
+    
+    Receive --> Trim["2. sliding_window()<br>Count tokens with tiktoken<br>Prune oldest history first"]:::process
+    
+    Trim --> BuildPrompt["3. build_structured_prompt()<br>Wrap user query with<br>JSON instructions"]:::process
+    
+    BuildPrompt --> CallLLM["4. call_openrouter()<br>Async POST to OpenRouter"]:::ext
+    
+    CallLLM --> ParseJSON["5. parse_or_heal()"]:::healer
+    
+    subgraph Healer [Self-Healing Parser Pipeline]
+        ParseJSON --> TryDirect["Attempt 1: Direct JSON parse"]:::healer
+        TryDirect -- "Success" --> ReturnResp["Return dict"]:::process
+        
+        TryDirect -- "Fail" --> StripFence["Attempt 2: Strip markdown fences<br>(```json ... ```)"]:::healer
+        StripFence -- "Success" --> ReturnResp
+        
+        StripFence -- "Fail" --> ExtractBraces["Attempt 3: Extract outermost { ... }"]:::healer
+        ExtractBraces -- "Success" --> ReturnResp
+        
+        ExtractBraces -- "Fail" --> Fallback["Attempt 4: Wrap raw response<br>in safe fallback object"]:::healer
+        Fallback --> ReturnResp
+    end
+    
+    ReturnResp --> SendClient["[Client] Final JSON Response"]:::client
+```
+
 
 ## Run it
 1. `pip install -r requirements.txt`
