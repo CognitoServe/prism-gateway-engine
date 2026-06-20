@@ -1,3 +1,4 @@
+import json
 import tiktoken
 from fastapi import FastAPI
 
@@ -59,3 +60,56 @@ def sliding_window(history: list[dict], max_tokens: int, system: str) -> list[di
 
     kept.reverse()
     return kept
+
+
+def build_structured_prompt(user_query: str, required_keys: list[str]) -> str:
+    """
+    Wrap the user's query with explicit JSON format instructions
+    so the model is more likely to return parseable output.
+    """
+    key_list = ", ".join(f'"{k}"' for k in required_keys)
+    return (
+        f"Respond ONLY with valid JSON containing these keys: {key_list}.\n"
+        f"No markdown fences, no explanation outside the JSON object.\n\n"
+        f"User query: {user_query}"
+    )
+
+
+def parse_or_heal(raw_llm_output: str) -> dict:
+    """
+    Try direct JSON parse.  If that fails, strip markdown fences and
+    extract the first {{ ... }} block.  Last resort: wrap raw text in
+    a fallback dict so the caller always gets valid JSON back.
+    """
+    text = raw_llm_output.strip()
+
+    # Attempt 1 — direct parse
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    # Attempt 2 — strip ```json ... ``` fences
+    cleaned = text
+    if cleaned.startswith("```"):
+        cleaned = cleaned.split("\n", 1)[-1]   # drop opening fence line
+    if cleaned.endswith("```"):
+        cleaned = cleaned.rsplit("```", 1)[0]
+    cleaned = cleaned.strip()
+
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        pass
+
+    # Attempt 3 — extract first { ... } block
+    start = cleaned.find("{")
+    end   = cleaned.rfind("}")
+    if start != -1 and end > start:
+        try:
+            return json.loads(cleaned[start : end + 1])
+        except json.JSONDecodeError:
+            pass
+
+    # Give up — return raw text so caller never crashes
+    return {"reply": raw_llm_output}
