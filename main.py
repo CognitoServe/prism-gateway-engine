@@ -140,3 +140,31 @@ async def call_openrouter(prompt: str) -> str:
         )
         resp.raise_for_status()
     return resp.json()["choices"][0]["message"]["content"]
+
+
+# ── New: /chat endpoint ──────────────────────────────────────────────────
+
+@app.post("/chat")
+async def chat(request: dict):
+    """
+    Body: {"history": [...], "system": "...", "max_tokens": 500}
+    Returns healed JSON from the model.
+    """
+    history    = request.get("history", [])
+    system     = request.get("system", "")
+    max_tokens = request.get("max_tokens", 4000)
+
+    # 1 — prune history
+    trimmed = sliding_window(history, max_tokens=max_tokens, system=system)
+
+    # 2 — structured prompt from latest user message
+    latest = trimmed[-1]["content"] if trimmed else ""
+    prompt = build_structured_prompt(latest, required_keys=["reply"])
+
+    # 3 — live LLM call
+    raw = await call_openrouter(prompt)
+
+    # 4 — parse / heal
+    result = parse_or_heal(raw)
+
+    return result
